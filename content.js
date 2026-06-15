@@ -1,0 +1,370 @@
+console.log("GPA Extension Loaded");
+function percentageToGPA(pct) {
+  if (pct >= 85.51) return 4.00;
+  if (pct >= 81.51) return 3.67;
+  if (pct >= 77.51) return 3.33;
+  if (pct >= 73.51) return 3.00;
+  if (pct >= 69.51) return 2.67;
+  if (pct >= 65.51) return 2.33;
+  if (pct >= 61.51) return 2.00;
+  if (pct >= 57.51) return 1.67;
+  if (pct >= 53.51) return 1.33;
+  if (pct >= 49.51) return 1.00;
+  return 0.00;
+}
+
+const letterGradeBands = [
+    { min: 89.51, letter: "A+"  },
+  { min: 85.51, letter: "A"  },
+  { min: 81.51, letter: "A-" },
+  { min: 77.51, letter: "B+" },
+  { min: 73.51, letter: "B"  },
+  { min: 69.51, letter: "B-" },
+  { min: 65.51, letter: "C+" },
+  { min: 61.51, letter: "C"  },
+  { min: 57.51, letter: "C-" },
+  { min: 53.51, letter: "D+" },
+  { min: 49.51, letter: "D"  },
+  { min: 0,  letter: "F"  }
+];
+
+function percentageToLetter(pct) {
+  for (const band of letterGradeBands) {
+    if (pct >= band.min) return band.letter;
+  }
+  return "F";
+}
+
+const DEFAULT_CREDIT = 3;
+
+function isLabCourse(courseCode) {
+  // Check if course code has L as the 2nd character (e.g., CL002)
+  return courseCode.length > 1 && courseCode[1] === "L";
+}
+
+function scrapeMarks() {
+  const results = {};
+  const courseTabs = document.querySelectorAll(".tab-pane");
+
+  courseTabs.forEach(tab => {
+    const courseCode = tab.id.trim();
+    if (!courseCode) return;
+
+    const heading = tab.querySelector("h5");
+    const fullName = heading
+      ? heading.textContent.trim()
+      : courseCode;
+
+    results[courseCode] = {
+      course: courseCode,
+      fullName,
+      obtained: 0,
+      total: 0
+    };
+
+    // Find all assessment sections in the course
+    const assessmentTables = tab.querySelectorAll("tbody");
+
+    assessmentTables.forEach(tbody => {
+      // Check if this is a Final assessment
+      const collapseParent = tbody.closest(".collapse");
+      const isFinal = collapseParent && collapseParent.id && collapseParent.id.includes("Final");
+
+      // FAST already calculates Best-N logic in total rows
+      const totalObtCell = tbody.querySelector(".totalColObtMarks");
+      const totalWeightCell = tbody.querySelector(".totalColweightage");
+
+      const hasUngradedRows = Array.from(
+  tbody.querySelectorAll(".ObtMarks")
+).some(cell => cell.textContent.trim() === "-");
+
+// If this is a Final table and it's empty, skip it
+if (isFinal && (!totalObtCell || !totalObtCell.textContent.trim())) {
+  return;
+}
+
+if (
+  totalObtCell &&
+  totalWeightCell &&
+  !hasUngradedRows
+) {
+  const obtainedText = totalObtCell.textContent.trim();
+  const weightageText = totalWeightCell.textContent.trim();
+
+  const obtained = parseFloat(obtainedText);
+  const weightage = parseFloat(weightageText);
+
+  if (!isNaN(obtained) && !isNaN(weightage)) {
+    results[courseCode].obtained += obtained;
+    results[courseCode].total += weightage;
+  }
+
+  return;
+}
+
+      // Fallback for sections that do not have total rows
+      const rows = tbody.querySelectorAll("tr.calculationrow");
+
+      rows.forEach(row => {
+
+        const obtainedCell = row.querySelector(".ObtMarks");
+        const grandTotalCell = row.querySelector(".GrandTotal");
+        const weightageCell = row.querySelector(".weightage");
+
+        if (!obtainedCell || !grandTotalCell || !weightageCell)
+          return;
+
+        const obtainedText =
+          obtainedCell.textContent.trim();
+
+        const grandTotalText =
+          grandTotalCell.textContent.trim();
+
+        const weightageText =
+          weightageCell.textContent.trim();
+
+        if (
+          obtainedText === "-" ||
+          grandTotalText === "-" ||
+          obtainedText === ""
+        ) {
+          return;
+        }
+
+        const obtainedRaw =
+          parseFloat(obtainedText) || 0;
+
+        const grandTotalRaw =
+          parseFloat(grandTotalText) || 1;
+
+        const weightage =
+          parseFloat(weightageText) || 0;
+
+        const weightedObtained =
+          (obtainedRaw / grandTotalRaw) *
+          weightage;
+
+        results[courseCode].obtained += weightedObtained;
+        results[courseCode].total += weightage;
+      });
+    });
+  });
+
+  return results;
+}
+
+function calculateGPA(marksData, creditsMap) {
+  const courseResults = [];
+  let totalWeightedGPA = 0;
+  let totalCredits = 0;
+
+  for (const [course, data] of Object.entries(marksData)) {
+    if (data.total === 0) continue;
+
+    const percentage = (data.obtained / data.total) * 100;
+    const gpa = percentageToGPA(percentage);
+    const letter = percentageToLetter(percentage);
+    const credits = creditsMap[course] ?? (isLabCourse(course) ? 1 : DEFAULT_CREDIT);
+
+    console.log(`Course: ${course}, isLab: ${isLabCourse(course)}, credits: ${credits}`);
+
+    courseResults.push({
+    course,
+    fullName: data.fullName,
+      obtained: data.obtained.toFixed(2),
+      total: data.total.toFixed(2),
+      percentage: percentage.toFixed(2),
+      gpa: gpa.toFixed(2),
+      letter,
+      credits
+    });
+
+    totalWeightedGPA += gpa * credits;
+    totalCredits += credits;
+  }
+
+  const semesterGPA = totalCredits > 0 ? (totalWeightedGPA / totalCredits).toFixed(2) : "N/A";
+  return { courseResults, semesterGPA };
+}
+
+function renderWidget(data) {
+  let widget = document.getElementById("gpa-extension-widget");
+  if (!widget) {
+    widget = document.createElement("div");
+    widget.id = "gpa-extension-widget";
+    document.body.appendChild(widget);
+  }
+
+  let html = `
+    <div class="gpa-header">
+      <span>📊 Live GPA</span>
+      <button id="gpa-close-btn">✕</button>
+    </div>
+    <div class="gpa-body">
+  `;
+
+  if (data.courseResults.length === 0) {
+    html += `<p class="gpa-empty">No marks found yet.</p>`;
+  } else {
+    data.courseResults.forEach(c => {
+      html += `
+        <div class="gpa-course">
+          <div class="gpa-course-name">
+  ${c.fullName || c.course}
+</div>
+          <div class="gpa-course-stats">
+            ${c.obtained}/${c.total} marks &middot; ${c.percentage}% &middot; ${c.letter} (GPA ${c.gpa})
+          </div>
+        </div>
+      `;
+    });
+    html += `
+      <div class="gpa-semester">
+        Semester GPA: <strong>${data.semesterGPA}</strong>
+      </div>
+    `;
+  }
+
+  html += `</div>`;
+  widget.innerHTML = html;
+
+const header = widget.querySelector(".gpa-header");
+
+  document.getElementById("gpa-close-btn").addEventListener("click", () => {
+    widget.style.display = "none";
+  });
+  if (!widget.dataset.dragInitialized) {
+    widget.dataset.dragInitialized = "true";
+
+    let isDragging = false;
+    let offsetX = 0;
+    let offsetY = 0;
+
+    const header = widget.querySelector(".gpa-header");
+
+    header.style.cursor = "move";
+
+    header.addEventListener("mousedown", (e) => {
+        isDragging = true;
+
+        offsetX = e.clientX - widget.offsetLeft;
+        offsetY = e.clientY - widget.offsetTop;
+
+        widget.style.right = "auto";
+        widget.style.right = "auto";
+        widget.style.bottom = "auto";
+    });
+
+    document.addEventListener("mousemove", (e) => {
+        if (!isDragging) return;
+
+        widget.style.left = `${e.clientX - offsetX}px`;
+        widget.style.top = `${e.clientY - offsetY}px`;
+    });
+
+    document.addEventListener("mouseup", () => {
+        isDragging = false;
+    });
+}
+}
+
+function injectStatsIntoDOM(data) {
+  data.courseResults.forEach(c => {
+    const tab = document.getElementById(c.course);
+    if (!tab) return;
+
+    const heading = tab.querySelector("h5");
+    if (!heading) return;
+
+    let badge = heading.querySelector(".live-gpa-badge");
+    if (!badge) {
+      badge = document.createElement("span");
+      badge.className = "live-gpa-badge";
+      heading.appendChild(badge);
+    }
+
+    badge.innerHTML = ` &mdash; <strong style="color:#1a73e8; background:#e8f0fe; padding:4px 8px; border-radius:12px; font-size:14px; margin-left:10px;">${c.course} · ${c.percentage}% · ${c.letter} · GPA: ${c.gpa}</strong>`;
+  });
+
+  let sgpaBanner = document.getElementById("live-sgpa-banner");
+  if (!sgpaBanner) {
+    sgpaBanner = document.createElement("div");
+    sgpaBanner.id = "live-sgpa-banner";
+    
+    const tabContent = document.querySelector(".tab-content");
+    if (tabContent && tabContent.parentNode) {
+        tabContent.parentNode.insertBefore(sgpaBanner, tabContent);
+    } else {
+        document.body.prepend(sgpaBanner);
+    }
+  }
+
+  sgpaBanner.innerHTML = `
+    <div style="background: linear-gradient(135deg, #1a73e8 0%, #0d47a1 100%); color: white; padding: 16px 24px; border-radius: 10px; margin-bottom: 24px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
+        <h4 style="margin: 0; font-size: 18px; font-weight: 600;">📊 Live Semester Projection</h4>
+        <div style="font-size: 24px; font-weight: 700;">SGPA: ${data.semesterGPA}</div>
+    </div>
+  `;
+
+  // Populate Grand Total Marks table - only if tfoot is empty (official data doesn't exist)
+  // Find all Grand Total tables on the page dynamically
+  const grandTotalTables = document.querySelectorAll("div[id*='Grand_Total_Marks'] table");
+  
+  grandTotalTables.forEach(table => {
+    const tbody = table.querySelector("tbody");
+    const tfoot = table.querySelector("tfoot");
+    
+    // If tfoot exists and has rows with data, don't populate tbody
+    if (tfoot && tfoot.querySelector("tr td")) {
+      // Official data exists in tfoot, skip
+      return;
+    }
+    
+    // Only populate tbody if there's no tfoot data and tbody is empty
+    if (tbody && tbody.querySelectorAll("tr").length === 0) {
+      // Extract course code from the table's parent ID
+      const tableContainer = table.closest("div[id*='Grand_Total_Marks']");
+      const tableId = tableContainer ? tableContainer.id : "";
+      // Extract course code (e.g., "CL1004" from "CL1004-Grand_Total_Marks")
+      const courseCode = tableId.split("-")[0];
+      
+      // Find the course result for this specific course
+      const courseResult = data.courseResults.find(c => c.course === courseCode);
+      
+      if (courseResult) {
+        // Use only this course's data
+        const total = parseFloat(courseResult.total);
+        const obtained = parseFloat(courseResult.obtained);
+        
+        tbody.innerHTML = `
+          <tr>
+            <td class="text-center"><strong>${total.toFixed(2)}</strong></td>
+            <td class="text-center"><strong>${obtained.toFixed(2)}</strong></td>
+            <td class="text-center">-</td>
+            <td class="text-center">-</td>
+            <td class="text-center">-</td>
+            <td class="text-center">-</td>
+          </tr>
+        `;
+      }
+    }
+  });
+}
+
+function run() {
+  chrome.storage.local.get(["savedCourseCredits"], (storage) => {
+    const creditsMap = storage.savedCourseCredits || {};
+    const marksData = scrapeMarks();
+    const result = calculateGPA(marksData, creditsMap);
+    
+    renderWidget(result);
+    injectStatsIntoDOM(result);
+
+    chrome.storage.local.set({ latestGPAData: result, lastUpdated: new Date().toISOString() });
+  });
+}
+
+run();
+
+// const observer = new MutationObserver(() => run());
+// observer.observe(document.body, { childList: true, subtree: true });
