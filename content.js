@@ -187,7 +187,37 @@ function calculateGPA(marksData, creditsMap) {
   return { courseResults, semesterGPA };
 }
 
-function renderWidget(data) {
+const WIDGET_STATE_KEY = "gpaWidgetUI";
+const DEFAULT_WIDGET_STATE = { left: null, top: null, collapsed: false, closed: false };
+
+function saveWidgetState(partial) {
+  chrome.storage.local.get([WIDGET_STATE_KEY], (storage) => {
+    const merged = { ...DEFAULT_WIDGET_STATE, ...(storage[WIDGET_STATE_KEY] || {}), ...partial };
+    chrome.storage.local.set({ [WIDGET_STATE_KEY]: merged });
+  });
+}
+
+function showReopenChip() {
+  let chip = document.getElementById("gpa-reopen-chip");
+  if (chip) return;
+
+  chip = document.createElement("button");
+  chip.id = "gpa-reopen-chip";
+  chip.title = "Show Live GPA";
+  chip.textContent = "📊";
+  document.body.appendChild(chip);
+
+  chip.addEventListener("click", () => {
+    chip.remove();
+    saveWidgetState({ closed: false });
+    const widget = document.getElementById("gpa-extension-widget");
+    if (widget) widget.style.display = "block";
+  });
+}
+
+function renderWidget(data, widgetState) {
+  const state = { ...DEFAULT_WIDGET_STATE, ...(widgetState || {}) };
+
   let widget = document.getElementById("gpa-extension-widget");
   if (!widget) {
     widget = document.createElement("div");
@@ -198,9 +228,12 @@ function renderWidget(data) {
   let html = `
     <div class="gpa-header">
       <span>📊 Live GPA</span>
-      <button id="gpa-close-btn">✕</button>
+      <div class="gpa-header-actions">
+        <button id="gpa-min-btn" title="Minimize">${state.collapsed ? "▢" : "–"}</button>
+        <button id="gpa-close-btn" title="Close">✕</button>
+      </div>
     </div>
-    <div class="gpa-body">
+    <div class="gpa-body" style="${state.collapsed ? "display:none;" : ""}">
   `;
 
   if (data.courseResults.length === 0) {
@@ -228,11 +261,34 @@ function renderWidget(data) {
   html += `</div>`;
   widget.innerHTML = html;
 
-const header = widget.querySelector(".gpa-header");
+  // Restore saved position, if any
+  if (state.left !== null && state.top !== null) {
+    widget.style.left = `${state.left}px`;
+    widget.style.top = `${state.top}px`;
+    widget.style.right = "auto";
+    widget.style.bottom = "auto";
+  }
+
+  if (state.closed) {
+    widget.style.display = "none";
+    showReopenChip();
+  }
 
   document.getElementById("gpa-close-btn").addEventListener("click", () => {
     widget.style.display = "none";
+    saveWidgetState({ closed: true });
+    showReopenChip();
   });
+
+  document.getElementById("gpa-min-btn").addEventListener("click", () => {
+    const body = widget.querySelector(".gpa-body");
+    const minBtn = document.getElementById("gpa-min-btn");
+    const nowCollapsed = body.style.display !== "none";
+    body.style.display = nowCollapsed ? "none" : "";
+    minBtn.textContent = nowCollapsed ? "▢" : "–";
+    saveWidgetState({ collapsed: nowCollapsed });
+  });
+
   if (!widget.dataset.dragInitialized) {
     widget.dataset.dragInitialized = "true";
 
@@ -245,25 +301,40 @@ const header = widget.querySelector(".gpa-header");
     header.style.cursor = "move";
 
     header.addEventListener("mousedown", (e) => {
+        // Don't start a drag if the press originated on a header button
+        if (e.target.closest("#gpa-close-btn") || e.target.closest("#gpa-min-btn")) return;
+
         isDragging = true;
 
         offsetX = e.clientX - widget.offsetLeft;
         offsetY = e.clientY - widget.offsetTop;
 
         widget.style.right = "auto";
-        widget.style.right = "auto";
         widget.style.bottom = "auto";
+        document.body.style.userSelect = "none";
     });
 
     document.addEventListener("mousemove", (e) => {
         if (!isDragging) return;
 
-        widget.style.left = `${e.clientX - offsetX}px`;
-        widget.style.top = `${e.clientY - offsetY}px`;
+        const maxLeft = window.innerWidth - widget.offsetWidth;
+        const maxTop = window.innerHeight - widget.offsetHeight;
+
+        const newLeft = Math.min(Math.max(0, e.clientX - offsetX), maxLeft);
+        const newTop = Math.min(Math.max(0, e.clientY - offsetY), maxTop);
+
+        widget.style.left = `${newLeft}px`;
+        widget.style.top = `${newTop}px`;
     });
 
     document.addEventListener("mouseup", () => {
+        if (!isDragging) return;
         isDragging = false;
+        document.body.style.userSelect = "";
+        saveWidgetState({
+          left: parseInt(widget.style.left, 10),
+          top: parseInt(widget.style.top, 10)
+        });
     });
 }
 }
@@ -352,12 +423,13 @@ function injectStatsIntoDOM(data) {
 }
 
 function run() {
-  chrome.storage.local.get(["savedCourseCredits"], (storage) => {
+  chrome.storage.local.get(["savedCourseCredits", WIDGET_STATE_KEY], (storage) => {
     const creditsMap = storage.savedCourseCredits || {};
+    const widgetState = storage[WIDGET_STATE_KEY] || DEFAULT_WIDGET_STATE;
     const marksData = scrapeMarks();
     const result = calculateGPA(marksData, creditsMap);
     
-    renderWidget(result);
+    renderWidget(result, widgetState);
     injectStatsIntoDOM(result);
 
     chrome.storage.local.set({ latestGPAData: result, lastUpdated: new Date().toISOString() });
