@@ -74,6 +74,14 @@
   margin-top: 3px;
 }
 
+.gpa-course-empty {
+  opacity: 0.65;
+}
+
+.gpa-course-stats-empty {
+  font-style: italic;
+}
+
 .gpa-semester {
   margin-top: 10px;
   padding-top: 10px;

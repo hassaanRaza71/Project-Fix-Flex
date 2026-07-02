@@ -159,7 +159,14 @@ function calculateGPA(marksData, creditsMap) {
   let totalCredits = 0;
 
   for (const [course, data] of Object.entries(marksData)) {
-    if (data.total === 0) continue;
+    if (data.total === 0) {
+      courseResults.push({
+        course,
+        fullName: data.fullName,
+        noMarks: true
+      });
+      continue;
+    }
 
     const percentage = (data.obtained / data.total) * 100;
     const gpa = percentageToGPA(percentage);
@@ -240,6 +247,17 @@ function renderWidget(data, widgetState) {
     html += `<p class="gpa-empty">No marks found yet.</p>`;
   } else {
     data.courseResults.forEach(c => {
+      if (c.noMarks) {
+        html += `
+          <div class="gpa-course gpa-course-empty">
+            <div class="gpa-course-name">
+  ${c.fullName || c.course}
+</div>
+            <div class="gpa-course-stats gpa-course-stats-empty">No marks yet</div>
+          </div>
+        `;
+        return;
+      }
       html += `
         <div class="gpa-course">
           <div class="gpa-course-name">
@@ -422,6 +440,58 @@ function injectStatsIntoDOM(data) {
   });
 }
 
+function preWarmGrandTotals() {
+  const buttons = document.querySelectorAll('[onclick^="ftn_calculateMarks"]');
+  const semSelect = document.getElementById("SemId");
+  const semId = semSelect ? semSelect.value : null;
+  if (!semId) return;
+
+  const setText = (id, value) => {
+    const el = document.getElementById(id);
+    if (el && !el.textContent.trim() && typeof value === "number" && !isNaN(value)) {
+      el.textContent = value.toFixed(2);
+    }
+  };
+
+  buttons.forEach(btn => {
+    const match = btn.getAttribute("onclick").match(/ftn_calculateMarks\('?(\d+)'?\)/);
+    if (!match) return;
+    const id = match[1];
+
+    // Skip if already populated (e.g. user already expanded it)
+    const avgEl = document.getElementById(`GrandtotalClassAvg_${id}`);
+    if (avgEl && avgEl.textContent.trim()) return;
+
+    // Sum weightage cells for this course's total column, same as the portal's own script
+    let tempGrandTotal = 0;
+    document.querySelectorAll(`.totalColumn_${id} .totalColweightage`).forEach(cell => {
+      const val = parseFloat(cell.textContent);
+      if (!isNaN(val)) tempGrandTotal += val;
+    });
+    if (tempGrandTotal > 0) {
+      setText(`GrandtotalColMarks_${id}`, tempGrandTotal);
+    }
+
+    fetch("../Student/GetClassAvg", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: `CourseId=${encodeURIComponent(id)}&SemID=${encodeURIComponent(semId)}`
+    })
+      .then(res => res.json())
+      .then(rows => {
+        if (!Array.isArray(rows)) return;
+        rows.forEach(row => {
+          setText(`GrandtotalClassAvg_${id}`, row.CLASS_AVG);
+          setText(`GrandtotalClassMax_${id}`, row.CLASS_MAX);
+          setText(`GrandtotalClassMin_${id}`, row.CLASS_MIN);
+          setText(`GrandtotalClassStdDev_${id}`, row.CLASS_STD);
+          setText(`GrandtotalObtMarks_${id}`, row.TOT_WEIGHT);
+        });
+      })
+      .catch(() => {}); // silent - this is a background nicety, not core functionality
+  });
+}
+
 function run() {
   chrome.storage.local.get(["savedCourseCredits", WIDGET_STATE_KEY], (storage) => {
     const creditsMap = storage.savedCourseCredits || {};
@@ -431,6 +501,7 @@ function run() {
     
     renderWidget(result, widgetState);
     injectStatsIntoDOM(result);
+    preWarmGrandTotals();
 
     chrome.storage.local.set({ latestGPAData: result, lastUpdated: new Date().toISOString() });
   });
