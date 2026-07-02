@@ -44,12 +44,21 @@ function runAttendanceTracker() {
       const allowedAbsentHours = Math.floor(totalHours * (1 - MIN_ATTENDANCE));
       const remaining = allowedAbsentHours - absentHours;
 
-      let color = "#1a9c4b"; // safe
-      if (remaining <= 1 && remaining >= 0) color = "#e08a00"; // close to limit
-      if (remaining < 0) color = "#d93025"; // over limit
+      let bg = "#0f8a3f"; // safe
+      if (remaining <= 1 && remaining >= 0) bg = "#c9740a"; // close to limit
+      if (remaining < 0) bg = "#c62828"; // over limit
 
       const badge = document.createElement("span");
-      badge.style.cssText = `margin-left:10px; font-size:14px; font-weight:600; color:${color};`;
+      badge.style.cssText = `
+        margin-left:10px;
+        padding:2px 8px;
+        font-size:13px;
+        font-weight:700;
+        color:#ffffff;
+        background:${bg};
+        border-radius:10px;
+        white-space:nowrap;
+      `;
       badge.textContent = `${absentHours}/${allowedAbsentHours} absences`;
       percentEl.appendChild(badge);
       percentEl.dataset.absenceInfoAdded = "true";

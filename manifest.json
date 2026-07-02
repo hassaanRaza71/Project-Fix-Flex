@@ -16,13 +16,13 @@
     },
     {
   "matches": ["https://flexstudent.nu.edu.pk/Student/StudentMarks*"],
-  "js": ["content.js"],
+  "js": ["creditsSync.js", "content.js"],
   "css": ["style.css"],
   "run_at": "document_idle"
     },
     {
   "matches": ["https://flexstudent.nu.edu.pk/Student/StudentAttendance*"],
-  "js": ["attendance.js"],
+  "js": ["creditsSync.js", "attendance.js"],
   "run_at": "document_idle"
     }
   ]
