@@ -6,19 +6,25 @@
 function parseCreditsFromHTML(html) {
   const doc = new DOMParser().parseFromString(html, "text/html");
   const creditsMap = {};
+  const nonCreditCourses = [];
 
   doc.querySelectorAll("tbody tr").forEach(row => {
     const cells = row.querySelectorAll("td");
     if (cells.length >= 4) {
       const code = cells[0].textContent.trim();
       const credits = parseFloat(cells[3].textContent.trim());
+      const courseType = cells[6] ? cells[6].textContent.trim() : "";
+
       if (code && !isNaN(credits)) {
         creditsMap[code] = credits;
+        if (courseType === "Non Credit") {
+          nonCreditCourses.push(code);
+        }
       }
     }
   });
 
-  return creditsMap;
+  return { creditsMap, nonCreditCourses };
 }
 
 function syncCreditsInBackground() {
@@ -37,10 +43,11 @@ function syncCreditsInBackground() {
     fetch(url)
       .then(res => res.text())
       .then(html => {
-        const creditsMap = parseCreditsFromHTML(html);
+        const { creditsMap, nonCreditCourses } = parseCreditsFromHTML(html);
         if (Object.keys(creditsMap).length > 0) {
           chrome.storage.local.set({
             savedCourseCredits: creditsMap,
+            nonCreditCourses,
             creditsLastSynced: Date.now()
           });
         }

@@ -82,6 +82,16 @@
   font-style: italic;
 }
 
+.gpa-noncredit-tag {
+  font-size: 10px;
+  font-weight: 700;
+  color: #616a76;
+  background: #eef0f2;
+  padding: 1px 5px;
+  border-radius: 6px;
+  vertical-align: middle;
+}
+
 .gpa-semester {
   margin-top: 10px;
   padding-top: 10px;

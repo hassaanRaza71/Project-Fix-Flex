@@ -153,10 +153,11 @@ if (
   return results;
 }
 
-function calculateGPA(marksData, creditsMap) {
+function calculateGPA(marksData, creditsMap, nonCreditCourses) {
   const courseResults = [];
   let totalWeightedGPA = 0;
   let totalCredits = 0;
+  const nonCreditSet = new Set(nonCreditCourses || []);
 
   for (const [course, data] of Object.entries(marksData)) {
     if (data.total === 0) {
@@ -172,8 +173,9 @@ function calculateGPA(marksData, creditsMap) {
     const gpa = percentageToGPA(percentage);
     const letter = percentageToLetter(percentage);
     const credits = creditsMap[course] ?? (isLabCourse(course) ? 1 : DEFAULT_CREDIT);
+    const isNonCredit = nonCreditSet.has(course);
 
-    console.log(`Course: ${course}, isLab: ${isLabCourse(course)}, credits: ${credits}`);
+    console.log(`Course: ${course}, isLab: ${isLabCourse(course)}, credits: ${credits}, nonCredit: ${isNonCredit}`);
 
     courseResults.push({
     course,
@@ -183,11 +185,16 @@ function calculateGPA(marksData, creditsMap) {
       percentage: percentage.toFixed(2),
       gpa: gpa.toFixed(2),
       letter,
-      credits
+      credits,
+      nonCredit: isNonCredit
     });
 
-    totalWeightedGPA += gpa * credits;
-    totalCredits += credits;
+    // Non-credit courses (e.g. Pass/Fail) never count toward semester GPA,
+    // regardless of whether marks happen to be recorded for them.
+    if (!isNonCredit) {
+      totalWeightedGPA += gpa * credits;
+      totalCredits += credits;
+    }
   }
 
   const semesterGPA = totalCredits > 0 ? (totalWeightedGPA / totalCredits).toFixed(2) : "N/A";
@@ -261,7 +268,7 @@ function renderWidget(data, widgetState) {
       html += `
         <div class="gpa-course">
           <div class="gpa-course-name">
-  ${c.fullName || c.course}
+  ${c.fullName || c.course}${c.nonCredit ? ' <span class="gpa-noncredit-tag">Non-Credit</span>' : ''}
 </div>
           <div class="gpa-course-stats">
             ${c.obtained}/${c.total} marks &middot; ${c.percentage}% &middot; ${c.letter} (GPA ${c.gpa})
@@ -324,11 +331,18 @@ function renderWidget(data, widgetState) {
 
         isDragging = true;
 
-        offsetX = e.clientX - widget.offsetLeft;
-        offsetY = e.clientY - widget.offsetTop;
+        const rect = widget.getBoundingClientRect();
+        offsetX = e.clientX - rect.left;
+        offsetY = e.clientY - rect.top;
 
+        // Pin the widget's current on-screen position with left/top
+        // BEFORE clearing right/bottom - otherwise, for one frame, neither
+        // is set and the browser snaps it to its default flow position.
+        widget.style.left = `${rect.left}px`;
+        widget.style.top = `${rect.top}px`;
         widget.style.right = "auto";
         widget.style.bottom = "auto";
+
         document.body.style.userSelect = "none";
     });
 
@@ -493,11 +507,12 @@ function preWarmGrandTotals() {
 }
 
 function run() {
-  chrome.storage.local.get(["savedCourseCredits", WIDGET_STATE_KEY], (storage) => {
+  chrome.storage.local.get(["savedCourseCredits", "nonCreditCourses", WIDGET_STATE_KEY], (storage) => {
     const creditsMap = storage.savedCourseCredits || {};
+    const nonCreditCourses = storage.nonCreditCourses || [];
     const widgetState = storage[WIDGET_STATE_KEY] || DEFAULT_WIDGET_STATE;
     const marksData = scrapeMarks();
-    const result = calculateGPA(marksData, creditsMap);
+    const result = calculateGPA(marksData, creditsMap, nonCreditCourses);
     
     renderWidget(result, widgetState);
     injectStatsIntoDOM(result);
